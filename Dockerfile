@@ -1,12 +1,11 @@
-# Utilise l'image de base Node.js standard (Debian)
+# Utiliser l'image standard Node.js (Debian)
 FROM node:22
+
+# Installation des outils nécessaires
+RUN apt-get update && apt-get install -y git python3 make g++
 
 # Définition du répertoire de travail (le code cloné par Render sera ici)
 WORKDIR /usr/src/app
-
-# Installation des outils nécessaires pour les dépendances natives
-# Cette image est plus complète, donc moins de paquets manuels nécessaires.
-RUN apt-get update && apt-get install -y git python3 make g++
 
 # Installation des dépendances définies dans package.json
 RUN npm install
