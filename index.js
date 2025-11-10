@@ -15,16 +15,24 @@ const {
 } = require('./config');
 
 const app = express();
-const port = process.env.PORT || 3000;
+// TRÈS IMPORTANT pour Render : Utiliser le port fourni par l'environnement
+// Si process.env.PORT n'est pas disponible (en local), utiliser 3000 par défaut.
+const port = process.env.PORT || 3000; 
 
 // Middleware pour analyser le JSON entrant
 app.use(express.json());
 
+// NOUVEAU: Ajout d'une route racine pour le diagnostic (si Render essaie d'accéder à /)
+app.get('/', (req, res) => {
+    res.status(200).send("Dave-Bot est actif et écoute les webhooks sur /webhook. Version de l'API Cloud utilisée: v19.0.");
+});
+
 // Initialisation de Gemini
-if (!GEMINI_API_KEY) {
-    logger.warn("La clé API Gemini n'est pas configurée. Le mode AI ne fonctionnera pas.");
+if (!GEMINI_API_KEY || GEMINI_API_KEY === 'VOTRE_GEMINI_API_KEY') {
+    logger.warn("La clé API Gemini n'est pas configurée ou est le placeholder. Le mode AI ne fonctionnera pas.");
 }
-const gemini = new GoogleGenAI(GEMINI_API_KEY); // La clé doit être chargée ici
+// Note: GoogleGenAI accepte une clé non valide mais l'erreur se produit seulement lors de l'appel.
+const gemini = new GoogleGenAI(GEMINI_API_KEY); 
 
 // --- Fonctions d'API Cloud WhatsApp ---
 async function sendWhatsAppMessage(to, text) {
@@ -47,8 +55,13 @@ async function sendWhatsAppMessage(to, text) {
                 'Content-Type': 'application/json'
             }
         });
+        logger.info(`Message de réponse envoyé avec succès à: ${to}`); 
     } catch (error) {
-        logger.error(`Erreur d'envoi de message WhatsApp: ${error.message}`);
+        // Log détaillé pour capturer l'erreur 401/400 et le message Meta
+        logger.error(`Erreur d'envoi de message WhatsApp (Code ${error.response ? error.response.status : 'N/A'}): ${error.message}`);
+        if (error.response && error.response.data) {
+             logger.error("Détails de l'erreur Meta:", JSON.stringify(error.response.data));
+        }
     }
 }
 
@@ -56,6 +69,8 @@ async function sendWhatsAppMessage(to, text) {
 async function handleIncomingMessage(message) {
     const from = message.from;
     const messageText = message.text.body;
+
+    logger.info(`Message reçu de ${from}: ${messageText}`); 
 
     // 1. GESTION DES COMMANDES (.list, .ping, etc.)
     if (messageText.startsWith(BOT_PREFIX)) {
@@ -70,11 +85,8 @@ async function handleIncomingMessage(message) {
                 await sendWhatsAppMessage(from, listMsg);
                 break;
             case 'restart':
-                // Les commandes 'restart' et 'shutdown' doivent être gérées
-                // en fonction de votre logique de permissions (sudo).
-                // Pour l'API Cloud, elles ne redémarrent que le serveur web.
                 await sendWhatsAppMessage(from, "Redémarrage du serveur...");
-                process.exit(0); // Quitte le processus, PM2 ou Render le redémarrera.
+                process.exit(0); // Quitte le processus, Render le redémarrera.
                 break;
             default:
                 await sendWhatsAppMessage(from, `Commande non reconnue: *${BOT_PREFIX}${command}*`);
@@ -82,8 +94,8 @@ async function handleIncomingMessage(message) {
         }
     }
     // 2. GESTION DES MESSAGES NON-COMMANDES (Gemini AI)
-    // On vérifie seulement si GEMINI_API_KEY est présent (et non pas s'il correspond au texte par défaut)
-    else if (GEMINI_API_KEY) { 
+    // On vérifie que la clé est présente ET n'est pas le placeholder
+    else if (GEMINI_API_KEY && GEMINI_API_KEY !== 'VOTRE_GEMINI_API_KEY') { 
         try {
             const response = await gemini.models.generateContent({
                 model: 'gemini-2.5-flash',
@@ -95,7 +107,8 @@ async function handleIncomingMessage(message) {
             await sendWhatsAppMessage(from, "Désolé, une erreur est survenue lors de la communication avec l'assistant Gemini.");
         }
     } else {
-        await sendWhatsAppMessage(from, "Je suis Dave-Bot. Pour parler à l'AI, configurez la clé Gemini. Utilisez *.list* pour les commandes.");
+        // Message d'erreur clair si Gemini n'est pas prêt
+        await sendWhatsAppMessage(from, "Je suis Dave-Bot. Mon assistant AI (Gemini) n'est pas configuré. Veuillez mettre à jour la clé API.");
     }
 }
 
@@ -145,13 +158,13 @@ async function startServer() {
     try {
         await sequelize.authenticate();
         logger.info('Connexion à la base de données établie avec succès.');
-        // Si vous avez des modèles Sequelize, vous devriez les synchroniser ici (ex: sequelize.sync()).
     } catch (error) {
-        // Cette erreur est désormais moins critique et loguée comme erreur
-        logger.error('Impossible de se connecter à la base de données (SQLite/Postgres):', error); 
+        // Log l'erreur mais ne bloque pas le démarrage du serveur
+        logger.error('Impossible de se connecter à la base de données (SQLite/Postgres):', error.message); 
     }
 
     app.listen(port, () => {
+        // Message de log CRITIQUE que Render recherche
         logger.info(`Dave-Bot est démarré et écoute sur le port ${port}.`);
     });
 }
