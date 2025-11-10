@@ -1,3 +1,6 @@
+// Utiliser dotenv pour charger les variables d'environnement (important si non déployé sur une plateforme avec des variables d'environnement configurées)
+try { require('dotenv').config(); } catch (e) {}
+
 const express = require('express');
 const { GoogleGenAI } = require('@google/genai');
 const axios = require('axios');
@@ -18,10 +21,10 @@ const port = process.env.PORT || 3000;
 app.use(express.json());
 
 // Initialisation de Gemini
-if (!GEMINI_API_KEY || GEMINI_API_KEY === "VOTRE_GEMINI_API_KEY") {
-    logger.error("La clé API Gemini n'est pas configurée. Le mode AI ne fonctionnera pas.");
+if (!GEMINI_API_KEY) {
+    logger.warn("La clé API Gemini n'est pas configurée. Le mode AI ne fonctionnera pas.");
 }
-const gemini = new GoogleGenAI(GEMINI_API_KEY);
+const gemini = new GoogleGenAI(GEMINI_API_KEY); // La clé doit être chargée ici
 
 // --- Fonctions d'API Cloud WhatsApp ---
 async function sendWhatsAppMessage(to, text) {
@@ -79,7 +82,8 @@ async function handleIncomingMessage(message) {
         }
     }
     // 2. GESTION DES MESSAGES NON-COMMANDES (Gemini AI)
-    else if (GEMINI_API_KEY && GEMINI_API_KEY !== "VOTRE_GEMINI_API_KEY") {
+    // On vérifie seulement si GEMINI_API_KEY est présent (et non pas s'il correspond au texte par défaut)
+    else if (GEMINI_API_KEY) { 
         try {
             const response = await gemini.models.generateContent({
                 model: 'gemini-2.5-flash',
@@ -143,7 +147,8 @@ async function startServer() {
         logger.info('Connexion à la base de données établie avec succès.');
         // Si vous avez des modèles Sequelize, vous devriez les synchroniser ici (ex: sequelize.sync()).
     } catch (error) {
-        logger.error('Impossible de se connecter à la base de données:', error);
+        // Cette erreur est désormais moins critique et loguée comme erreur
+        logger.error('Impossible de se connecter à la base de données (SQLite/Postgres):', error); 
     }
 
     app.listen(port, () => {
@@ -152,3 +157,4 @@ async function startServer() {
 }
 
 startServer();
+
